@@ -1,0 +1,515 @@
+//适合普通BP算法和改进型BP[带缓冲项]算法）
+
+//还不错，可以运行(改进版)，可以作为分类器使用，输出结果用 0,1表示
+//训练样本大概是这些(每组前三个为in样本数据 后面为out结果)：
+//0 0 0 0.9
+//0 0 1 0.1
+//0 1 0 0.1
+//0 1 1 0.9
+//1 0 0 0.1
+//1 0 1 0.9
+//1 1 0 0.9
+//1 1 1 0.1
+//测试样本可以自己试试这些数据
+//0 0.1 0.9（期望：0.1）
+//0.9 0.9 0.1（期望0.9）
+
+
+/*-----------------------------------------分割线-----------------------------------------*/
+
+#include "stdlib.h"
+#include "math.h"
+#include "conio.h"
+#include "stdio.h"
+#include "time.h"
+
+#define N 8 /*学习样本个数*/
+#define IN 2 /*输入层神经元数目*/
+#define HN 8 /*隐层神经元数目*/
+#define ON 3 /*输出层神经元数目*/
+float P[IN]; /*单个样本输入数据*/
+float T[ON]; /*单个样本教师数据*/
+float W[HN][IN]; /*输入层至隐层权值*/
+float V[ON][HN]; /*隐层至输出层权值*/
+float X[HN]; /*隐层的输入*/
+float Y[ON]; /*输出层的输入*/
+float H[HN]; /*隐层的输出*/
+float O[ON]; /*输出层的输出*/
+float YU_HN[HN]; /*隐层的阈值*/
+float YU_ON[ON]; /*输出层的阈值*/
+float err_m[N]; /*第m个样本的总误差*/
+float a; /*输出层至隐层学习效率*/
+float b; /*隐层至输入层学习效率*/
+float alpha;   /*/动量因子，改进型bp算法使用*/
+float d_err[ON];/*δk*/
+float e_err[HN];/*δj*/
+FILE *fp;
+/*定义一个放学习样本的结构*/
+struct {
+float input[IN];
+float teach[ON];
+        }Study_Data[N];
+/*定义一个放测试样本的结构*/
+struct {
+float input[IN];
+float expect[ON];
+        }Test_Data[N];
+/*改进型bp算法用来保存每次计算的权值*/
+float old_W[HN][IN];
+float old_V[ON][HN];
+
+
+void Start_Show()
+{
+system("CLS"); 
+printf("\n                        *********************** \n");
+printf("                        *     Welcome to use    *\n");
+printf("                        *   this program of     *\n");
+printf("                        *   calculating the BP *\n");
+printf("                        *       model!          *\n");
+printf("                        *    Happy every day!   *\n");
+printf("                        ***********************\n");
+printf("\n\nBefore starting,please read the follows carefully:\n\n");
+printf("     The program of BP can study itself for no more than 200000 times.\nAnd surpassing the number,the program will be ended by itself in\npreventing running infinitely because of error!\n");
+printf("\n\n\n");
+printf("Now press any key to start...\n");
+getch();
+system("CLS"); 
+}
+int End_Show()
+{
+printf("\n\n---------------------------------------------------\n");
+printf("The program has reached the end successfully!\n\nPress any key to exit!\n\n");
+printf("\n                        ***********************\n");
+printf("                        *     This is the end   *\n");
+printf("                        * of the program which*\n");
+printf("                        * can calculate the BP*\n");
+printf("                        *       model!          *\n");
+printf("                        ***********************\n");
+printf("                        *   Thanks for using!   *\n");
+printf("                        *    Happy every day!   *\n");
+printf("                        ***********************\n");
+getch();
+exit(0);
+}
+
+
+/*读取训练样本*/
+GetTrainingData()
+{int i,j,m;
+float datr;
+if((fp=fopen("sample.txt","r"))==NULL)
+      {
+       printf("Cannot open file strike any key exit!");
+       getch();
+       exit(1);
+      }
+for(i=0;i<N;i++)
+      {j=0;
+       while(j!=(IN+ON)&&fscanf(fp,"%f",&datr)!=EOF)
+        {if(j>IN-1) Study_Data[i].teach[j-IN]=datr;
+         else        Study_Data[i].input[j]=datr;
+/*printf("\nthe Study_Data[%d].input[%d]=%f\n %f",i,j,Study_Data[i].input[j],datr);getch();*/
+/*use to check the loaded training datas*/
+         j++;
+        }
+      }
+fclose(fp);
+printf("\nThere are [%d] sample datas that have been loaded successfully!\n",N*(IN+ON));
+printf("\nShow the data which has been loaded as follows:\n");
+for(m=0;m<N;m++)
+    {for(i=0;i<IN;i++)
+      {printf("Study_Data[%d].input[%d]=%f          ",m,i,Study_Data[m].input[i]);}
+     for(j=0;j<ON;j++)
+      {printf("Study_Data[%d].teach[%d]=%f          ",m,j,Study_Data[m].teach[j]);}
+    }
+printf("\n\n\nPress any key to begin Study...");
+getch();
+system("CLS"); 
+return 1;
+}
+
+
+/*初始化权、阈值子程序*/
+initial()
+{int i;
+int ii;
+int j;
+int jj;
+int k;
+int kk;
+printf("\nRandsom Weight value and Bias value as follow:\n");
+srand(time(NULL));/*随机函数种子*/
+printf("\nWeight Value:\n");
+for(i=0;i<HN;i++) {
+   for(j=0;j<IN;j++)    {W[i][j]=(float)(((rand()/32767.0)*2-1)/2);
+/*初始化输入层到隐层的权值，随机模拟0.5~-0.5 */
+     printf("\nw[%d][%d]=%f",i,j,W[i][j]);
+     }
+   }
+for(ii=0;ii<ON;ii++) {
+   for(jj=0;jj<HN;jj++)    {V[ii][jj]= (float)(((rand()/32767.0)*2-1)/2);
+/*初始化隐层到输出层的权值，随机模拟0.5~-0.5 */
+     printf("\nV[%d][%d]=%f",ii,jj,V[ii][jj]);
+     }
+   }
+printf("\n\nBias Value:\n");
+for(k=0;k<HN;k++) {
+   YU_HN[k] = (float)(((rand()/32767.0)*2-1)/2);
+/*隐层阈值初始化 ,-0.01 ~ 0.01 之间*/
+     printf("\nYU_HN[%d]=%f",k,YU_HN[k]);
+     }
+for(kk=0;kk<ON;kk++) {
+   YU_ON[kk] = (float)(((rand()/32767.0)*2-1)/2);
+/*输出层阈值初始化 ,-0.01 ~ 0.01 之间*/
+     printf("\nYU_ON[%d]=%f\n",kk,YU_ON[kk]);
+    }
+printf("\n\n\n\n\nPress any key to start culculating...:\n");
+getch();
+system("CLS"); 
+printf("Please wait...");
+return 1;
+}
+
+
+/*第m个学习样本输入子程序*/
+input_P(int m)
+{ int i,j;
+   for(i=0;i<IN;i++)   {P[i]=Study_Data[m].input[i];}
+   return 1;
+}
+
+
+/*第m个样本教师信号子程序*/
+input_T(int m)
+{int k;
+for(k=0;k<ON;k++)    {T[k]=Study_Data[m].teach[k];}
+return 1;
+}
+
+
+/*求净输入，输出*/
+IN_OUT()
+{
+float sigma1,sigma2;
+int i,j,ii,jj;
+for(i=0;i<HN;i++)   {
+    sigma1=0.0;
+    for(j=0;j<IN;j++)
+    {sigma1+=W[i][j]*P[j];}/*求隐层内积*/
+     X[i]=sigma1+YU_HN[i];
+     H[i]=1.0/(1.0+exp(-X[i]));
+    }
+for(ii=0;ii<ON;ii++) {
+    sigma2=0.0;
+    for(jj=0;jj<HN;jj++)
+    {sigma2+=V[ii][jj]*H[jj];}
+     Y[ii]=sigma2+YU_ON[ii];
+     O[ii]=1.0/(1.0+exp(-Y[ii]));
+    }
+return 1;
+}
+
+
+/*误差分析*/
+/*δk*/
+int Err_O_H(int m)
+{int k;
+float abs_err[ON];
+float sqr_err=0.0;
+for (k=0;k<ON;k++)   {
+    abs_err[k]=T[k]-O[k];
+    sqr_err+=(abs_err[k])*(abs_err[k]);
+    d_err[k]=abs_err[k]*O[k]*(1.0-O[k]);
+    err_m[m]=sqr_err/2;
+   }
+return 1;
+}
+
+/*δj*/
+int Err_H_I()
+{
+int j,k;
+float sigma;
+for(j=0;j<HN;j++) {
+   sigma=0.0;
+   for(k=0;k<ON;k++)
+    {sigma+=d_err[k]*V[k][j];}
+     e_err[j]=sigma*H[j]*(1-H[j]);
+   }
+return 1;
+}
+
+/*总误差*/
+float Err_Sum()
+{int m;
+float total_err=0.0;
+for(m=0;m<N;m++)
+    {total_err+=err_m[m];}
+return total_err;
+}
+
+
+
+/*新旧权值更新量交替--改进型Bp算法*/
+saveWV()
+{int i;
+int ii;
+int j;
+int jj;
+for(i=0;i<HN;i++)    {
+    for(j=0;j<IN;j++)
+      {old_W[i][j] =b*e_err[i]*P[j];}
+    }
+for(ii=0;ii<ON;ii++){
+    for(jj=0;jj<HN;jj++)
+      {old_V[ii][jj] =a*d_err[ii]*H[jj];}
+    }
+return 1;
+}
+
+
+
+/*更新权值，阈值*/
+/*输出层*/
+int Delta_O_H(int n,int study)
+{int k,j;
+if((n<=1)||(study=1))
+   {
+    for (k=0;k<ON;k++)   {
+      for (j=0;j<HN;j++)
+        {V[k][j]=V[k][j]+a*d_err[k]*H[j];}
+      YU_ON[k]+=a*d_err[k];
+     }
+   }
+else
+   {
+    for (k=0;k<ON;k++)   {
+      for (j=0;j<HN;j++)
+        {V[k][j]=V[k][j]+(1.0-alpha)*a*d_err[k]*H[j]+alpha*old_V[k][j];}
+      YU_ON[k]+=a*d_err[k];
+     }
+   }
+return 1;
+}
+/*隐层*/
+Delta_H_I(int n,int study)
+{int i,j;
+if((n<=1)||(study=1))
+{
+   for (j=0;j<HN;j++)    {
+      for (i=0;i<IN;i++)
+        {W[j][i]=W[j][i]+b*e_err[j]*P[i];}
+      YU_HN[j]+=b*e_err[j];
+     }
+   }
+else
+{
+   for(j=0;j<HN;j++)     {
+     for(i=0;i<IN;i++)
+       {W[j][i]=W[j][i]+(1.0-alpha)*b*e_err[j]*P[i]+alpha*old_W[j][i];}
+     YU_HN[j]+=b*e_err[j];
+    }
+}
+return 1;
+}
+
+
+
+/*保存更新*/
+void savequan()
+{ int i,j,k;
+   int ii,jj,kk;
+   /*save weight*/
+   if((fp=fopen("weight.txt","w"))==NULL)
+    {
+      printf("Cannot open file strike any key exit!");
+      getch();
+      exit(1);
+    }
+   for(i=0;i<HN;i++)
+     {for(j=0;j<IN;j++)   fprintf(fp,"W[%d][%d]=%f\n",i,j,W[i][j]); }
+
+   fprintf(fp,"\n");
+   for(ii=0;ii<ON;ii++)
+     {for(jj=0;jj<HN;jj++)   fprintf(fp,"V[%d][%d]=%f\n",ii,jj,V[ii][jj]);}
+
+   fclose(fp);
+   printf("\nThe result of weight.txt(quanzhi) has been saved successfully!");
+   /*save limit*/
+   if((fp=fopen("limit.txt","a"))==NULL)
+    {
+      printf("Cannot open file strike any key exit!");
+      getch();
+      exit(1);
+    }
+   for(k=0;k<ON;k++)    fprintf(fp,"YU_ON[%d]=%f\n",k,YU_ON[k]);
+   for(kk=0;kk<HN;kk++)   fprintf(fp,"YU_HN[%d]=%f\n",kk,YU_HN[kk]);
+   fclose(fp);
+   printf("\nThe result of limit.txt(yuzhi) has been saved successfully!\n\n\n\n\nPress any key to Test...");
+   getch();
+system("CLS"); 
+}
+
+
+
+/*读取测试样本*/
+GetTestData()
+{int i,j,m;
+float datr;
+if((fp=fopen("test.txt","r"))==NULL)
+      {
+       printf("Cannot open file strike any key exit!");
+       getch();
+       exit(1);
+      }
+for(i=0;i<N;i++)
+      {j=0;
+       while(j!=(IN+ON)&&fscanf(fp,"%f",&datr)!=EOF)
+        {if(j>IN-1) Test_Data[i].expect[j-IN]=datr;
+         else        Test_Data[i].input[j]=datr;
+         j++;
+        }
+      }
+fclose(fp);
+printf("\nThere are [%d] test datas that have been loaded successfully!\n",N*(IN+ON));
+printf("\nShow the data which has been loaded as follows:\n");
+for(m=0;m<N;m++)
+    {for(i=0;i<IN;i++)
+      {printf("Test__Data[%d].input[%d]=%f          ",m,i,Test_Data[m].input[i]);}
+     for(j=0;j<ON;j++)
+      {printf("Test__Data[%d].expec[%d]=%f          ",m,j,Test_Data[m].expect[j]);}
+    }
+printf("\n\n\n\nPress any key to culculating...");
+getch();
+system("CLS"); 
+return 1;
+}
+
+
+/*样本测试及结果*/
+Test()
+{int i,j,k,m;
+float net1[HN],net2[ON],H_net[HN],O_net[ON];
+for(m=0;m<N;m++)
+     {for(i=0;i<HN;i++)
+        {net1[i]=0.0;
+         for(j=0;j<IN;j++)
+            {net1[i]+=Test_Data[m].input[j]*W[i][j];
+            }
+         net1[i]=net1[i]+YU_HN[i];
+         H_net[i]=1.0/(1.0+exp(-net1[i]));
+        }
+      for(k=0;k<ON;k++)
+        {net2[k]=0.0;
+         for(j=0;j<HN;j++)
+            {net2[k]+=H_net[j]*V[k][j];
+            }
+         net2[k]=net2[k]+YU_ON[k];
+         O_net[k]=1.0/(1.0+exp(-net2[k]));
+         printf("\nTest result[%d]=%f\n",m,O_net[k]);
+        }
+     }
+}
+
+Online_Test()
+{int i,j,k;
+float datr,TS[IN];
+float net1[HN],net2[ON],H_net[HN],O_net[ON];
+printf("\nPlease Input %d test datas with a space between each two datas:\n",IN);
+for(i=0;i<IN;i++)
+     {scanf("%f",&datr);
+      TS[i]=datr;
+     }
+for(i=0;i<HN;i++)
+        {net1[i]=0.0;
+         for(j=0;j<IN;j++)
+            {net1[i]+=TS[j]*W[i][j];
+            }
+         net1[i]=net1[i]+YU_HN[i];
+         H_net[i]=1.0/(1.0+exp(-net1[i]));
+        }
+for(k=0;k<ON;k++)
+        {net2[k]=0.0;
+         for(j=0;j<HN;j++)
+            {net2[k]+=H_net[j]*V[k][j];
+            }
+         net2[k]=net2[k]+YU_ON[k];
+         O_net[k]=1.0/(1.0+exp(-net2[k]));
+         printf("\nTest result:%f\n",O_net[k]);
+        }
+}
+
+/*直接输入测试*/
+OnlineSet()
+{char s;
+printf("\n\n\n\nIf you want to test the data you inputted now,press Y(or other button except Q);\nOr press Q to quit Test!\n");
+while(1){
+       s=getch();
+       switch(s) {
+           case 'Q':
+                    system("CLS"); 
+                    End_Show();
+           default:
+                    Online_Test();break;
+                 }
+       printf("\nTo continue testing press Y(or other button except Q);\nOr press Q to quit Test!\n");
+          }
+getch();
+}
+
+
+
+/**********************/
+/**程序入口，即主程序**/
+/**********************/
+void main()
+{float Pre_error;
+float sum_err;
+long int study;
+long int flag;
+int n=1;/*n=1:普通Bp算法；n=2:改进型Bp算法*/
+flag=20000;
+a=0.5;
+b=0.5;
+alpha=0.5;
+study=0;
+Pre_error=0.001;/*可接受误差*/
+Start_Show();
+GetTrainingData();
+initial();
+do
+   {int m;
+    ++study;
+    for(m=0;m<N;m++)
+     {input_P(m);
+      input_T(m);
+      IN_OUT();
+      Err_O_H(m);
+      Err_H_I();
+      Delta_O_H(n,study);
+      Delta_H_I(n,study);
+      saveWV();
+     }
+   sum_err=Err_Sum();
+   if(study>flag)
+    {
+     printf("\n*******************************\n");
+	 printf("\nsum_err = %f\n",sum_err);
+     printf("The program is ended by itself because of error!\nThe learning times is surpassed!\n");
+     printf("*****************************\n");
+     getch();
+     break;
+    }
+}while (sum_err>Pre_error);
+printf("\n****************\n");
+printf("\nThe program have studyed for [%ld] times!\n",study);
+printf("\n****************\n");
+savequan();         /*save the results*/
+GetTestData();
+printf("\nThe Result of the Test As follows:\n");
+Test();
+OnlineSet();
+End_Show();
+}
+
